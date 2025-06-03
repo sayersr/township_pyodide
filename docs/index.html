@@ -332,8 +332,69 @@ async def geocode_address_nominatim(full_address):
         if data and len(data) > 0:
             result = data[0]
             console.log(f"Geocoding successful: {result['lat']}, {result['lon']}")
+            
+            # Create a clean address format from the structured data
+            address_parts = result.get('address', {})
+            
+            # Extract components for a clean US address format
+            house_number = address_parts.get('house_number', '')
+            road = address_parts.get('road', '')
+            
+            # For NY addresses, prioritize hamlet/village over city/town for postal addresses
+            # This gives us the actual mailing address, not the municipal boundary name
+            city = (address_parts.get('hamlet') or          # Hamlet (like "Smithtown" hamlet)
+                   address_parts.get('village') or         # Village 
+                   address_parts.get('city') or            # City
+                   address_parts.get('town', ''))          # Town (last resort)
+            
+            # Aggressively clean up municipal government names to get postal names
+            if city.startswith('Town of '):
+                city = city[8:]  # "Town of Smithtown" → "Smithtown"
+            elif city.startswith('City of '):
+                city = city[8:]  # "City of Glen Cove" → "Glen Cove"  
+            elif city.startswith('Village of '):
+                city = city[10:]  # "Village of Garden City" → "Garden City"
+            
+            state = address_parts.get('state', 'NY')
+            postcode = address_parts.get('postcode', '')
+            
+            # Build clean address
+            clean_address_parts = []
+            if house_number and road:
+                # Abbreviate common road types for concise format
+                road_clean = road.replace(' Drive', ' Dr').replace(' Street', ' St').replace(' Avenue', ' Ave').replace(' Road', ' Rd').replace(' Lane', ' Ln').replace(' Boulevard', ' Blvd').replace(' Turnpike', ' Tpke').replace(' Parkway', ' Pkwy')
+                clean_address_parts.append(f"{house_number} {road_clean}")
+            elif road:
+                road_clean = road.replace(' Drive', ' Dr').replace(' Street', ' St').replace(' Avenue', ' Ave').replace(' Road', ' Rd').replace(' Lane', ' Ln').replace(' Boulevard', ' Blvd').replace(' Turnpike', ' Tpke').replace(' Parkway', ' Pkwy')
+                clean_address_parts.append(road_clean)
+            
+            if city:
+                clean_address_parts.append(city)
+            
+            # Use NY abbreviation instead of full state name
+            if state == 'New York':
+                state = 'NY'
+            if state:
+                clean_address_parts.append(state)
+                
+            if postcode:
+                clean_address_parts.append(postcode)
+            
+            # Join with appropriate separators for standard US format
+            if len(clean_address_parts) >= 2:
+                # "123 Main St, Smithtown, NY 11787" format
+                clean_address = clean_address_parts[0] + ', ' + ', '.join(clean_address_parts[1:])
+            else:
+                clean_address = ', '.join(clean_address_parts)
+            
+            console.log(f"Clean address: {clean_address}")
+            
+            # Fallback to original if we couldn't build a good address
+            if not clean_address or len(clean_address) < 10:
+                clean_address = result.get('display_name', full_address)
+            
             return {
-                'matched_address': result.get('display_name', full_address),
+                'matched_address': clean_address,
                 'lat': float(result['lat']),
                 'lon': float(result['lon'])
             }
