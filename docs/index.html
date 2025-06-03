@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NY Metro Township Finder - Python Edition</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #0066cc, #004499);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-weight: 300;
+            font-size: 2.2em;
+        }
+        .content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            min-height: 600px;
+        }
+        .sidebar {
+            padding: 30px;
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+        }
+        .main {
+            padding: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #495057;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #0066cc;
+            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.25);
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn:hover {
+            background: #0052a3;
+        }
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .status.loading {
+            background: #e7f3ff;
+            border: 1px solid #bee5eb;
+            color: #055160;
+        }
+        .status.ready {
+            background: #d1edff;
+            border: 1px solid #0066cc;
+            color: #004085;
+        }
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .results {
+            margin-bottom: 30px;
+        }
+        .result-item {
+            padding: 15px;
+            margin: 10px 0;
+            background: #f8f9fa;
+            border-left: 4px solid #0066cc;
+            border-radius: 4px;
+            font-size: 15px;
+            min-height: 20px;
+        }
+        .result-item.placeholder {
+            background: #f1f3f4;
+            border-left-color: #6c757d;
+            color: #6c757d;
+            font-style: italic;
+        }
+        #map {
+            height: 500px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #bee5eb;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #055160;
+        }
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid #dee2e6;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ NY Metro Township Finder</h1>
+            <p>Find townships and counties for addresses in New York Metro area</p>
+        </div>
+        
+        <div class="content">
+            <div class="sidebar">
+                <div class="form-group">
+                    <label for="street">Street Address</label>
+                    <input type="text" id="street" placeholder="123 Main Street" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="city">City (New York only)</label>
+                    <input type="text" id="city" placeholder="Hempstead" />
+                </div>
+                
+                <button class="btn" id="findBtn" onclick="findTownship()">
+                    🔍 Find Township & County
+                </button>
+                
+                <div class="status loading" id="status">
+                    🔄 Loading Python environment...
+                </div>
+                
+                <div class="info-box">
+                    <strong>Coverage Area:</strong><br>
+                    Long Island, NYC, and Westchester County<br><br>
+                    <strong>Supported Counties:</strong><br>
+                    Nassau, Suffolk, Queens, Kings (Brooklyn), New York (Manhattan), Richmond (Staten Island), Bronx, Westchester
+                </div>
+            </div>
+            
+            <div class="main">
+                <div class="results">
+                    <h3 style="color: #0066cc; margin-bottom: 20px;">Results</h3>
+                    <div class="result-item placeholder" id="address-result">
+                        Enter an address to get started
+                    </div>
+                    <div class="result-item" id="township-result" style="display: none;">
+                    </div>
+                    <div class="result-item" id="county-result" style="display: none;">
+                    </div>
+                </div>
+                
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Leaflet first -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Then load Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    
+    <script>
+        let pyodide;
+        let map;
+        
+        // Initialize map
+        function initMap() {
+            try {
+                if (typeof L === 'undefined') {
+                    setTimeout(initMap, 100);
+                    return;
+                }
+                
+                map = L.map('map').setView([40.7589, -73.7004], 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+                console.log('Map initialized successfully');
+            } catch (error) {
+                console.error('Error initializing map:', error);
+                setTimeout(initMap, 500);
+            }
+        }
+        
+        // Initialize Pyodide
+        async function initPyodide() {
+            try {
+                document.getElementById('status').innerHTML = '🔄 Loading Python environment...';
+                
+                pyodide = await loadPyodide();
+                
+                // Install required packages
+                document.getElementById('status').innerHTML = '📦 Installing Python packages...';
+                await pyodide.loadPackage(['micropip']);
+                
+                // Install pyodide-http
+                await pyodide.runPythonAsync(`
+                    import micropip
+                    await micropip.install(['pyodide-http'])
+                `);
+                
+                await pyodide.runPython(`
+                    import pyodide_http
+                    pyodide_http.patch_all()
+                `);
+                
+                // Define Python functions
+                await pyodide.runPython(`
+import json
+import urllib.parse
+from js import console, fetch
+import asyncio
+
+# Global variables for boundary data
+township_data = None
+county_data = None
+
+def clean_city_name(city_text):
+    """Remove state abbreviation from city name"""
+    if ',' in city_text:
+        return city_text.split(',')[0].strip()
+    return city_text.strip()
+
+async def fetch_json(url, params=None):
+    """Fetch JSON data using JavaScript fetch API"""
+    try:
+        if params:
+            query_string = urllib.parse.urlencode(params)
+            url = f"{url}?{query_string}"
+        
+        response = await fetch(url)
+        
+        if response.ok:
+            text = await response.text()
+            data = json.loads(text)
+            return data
+        else:
+            console.log(f"HTTP request failed: {response.status}")
+            return None
+    except Exception as e:
+        console.log(f"Error in fetch_json: {str(e)}")
+        return None
+
+async def fetch_feature_service(service_url, where_clause="1=1"):
+    """Fetch data from ArcGIS REST service"""
+    try:
+        query_url = f"{service_url}/query"
+        params = {
+            'where': where_clause,
+            'outFields': '*',
+            'f': 'geojson',
+            'outSR': '4326'
+        }
+        
+        data = await fetch_json(query_url, params)
+        
+        if data:
+            console.log(f"Loaded {len(data.get('features', []))} features")
+            return data
+        else:
+            console.log(f"Failed to fetch from {service_url}")
+            return None
+    except Exception as e:
+        console.log(f"Error fetching data: {str(e)}")
+        return None
+
+async def load_boundary_data():
+    """Load township and county boundary data"""
+    global township_data, county_data
+    
+    # Service URLs
+    township_service = "https://services6.arcgis.com/EbVsqZ18sv1kVJ3k/arcgis/rest/services/NYS_Civil_Boundaries/FeatureServer/6"
+    county_service = "https://services6.arcgis.com/EbVsqZ18sv1kVJ3k/arcgis/rest/services/NYS_Civil_Boundaries/FeatureServer/2"
+    
+    # Target counties
+    target_counties = ["Suffolk", "Nassau", "Queens", "Kings", "New York", "Richmond", "Bronx", "Westchester"]
+    
+    # Create WHERE clause for townships
+    county_conditions = [f"COUNTY LIKE '%{county}%'" for county in target_counties]
+    township_where = " OR ".join(county_conditions)
+    
+    console.log("Loading boundary data...")
+    
+    # Load townships and counties
+    township_data = await fetch_feature_service(township_service, township_where)
+    county_data = await fetch_feature_service(county_service)
+    
+    return township_data is not None and county_data is not None
+
+async def geocode_address(full_address):
+    """Geocode address using Census API"""
+    try:
+        base_url = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+        params = {
+            'address': full_address,
+            'benchmark': '2020',
+            'format': 'json'
+        }
+        
+        data = await fetch_json(base_url, params)
+        
+        if data:
+            matches = data.get('result', {}).get('addressMatches', [])
+            if matches:
+                match = matches[0]
+                return {
+                    'matched_address': match.get('matchedAddress', ''),
+                    'lat': float(match['coordinates']['y']),
+                    'lon': float(match['coordinates']['x'])
+                }
+        return None
+    except Exception as e:
+        console.log(f"Geocoding error: {str(e)}")
+        return None
+
+def point_in_polygon(point_lat, point_lon, polygon_coords):
+    """Check if point is inside polygon using ray casting algorithm"""
+    if not polygon_coords or len(polygon_coords) < 3:
+        return False
+    
+    x, y = point_lon, point_lat
+    n = len(polygon_coords)
+    inside = False
+    
+    p1x, p1y = polygon_coords[0]
+    for i in range(1, n + 1):
+        p2x, p2y = polygon_coords[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    
+    return inside
+
+def find_containing_feature(lat, lon, feature_data):
+    """Find which feature contains the given point"""
+    if not feature_data or 'features' not in feature_data:
+        return None
+    
+    for feature in feature_data['features']:
+        geometry = feature.get('geometry', {})
+        if geometry.get('type') == 'Polygon':
+            coords = geometry['coordinates'][0]
+            if point_in_polygon(lat, lon, coords):
+                return feature['properties']
+        elif geometry.get('type') == 'MultiPolygon':
+            for polygon in geometry['coordinates']:
+                coords = polygon[0]
+                if point_in_polygon(lat, lon, coords):
+                    return feature['properties']
+    
+    return None
+
+async def process_address(street, city):
+    """Main function to process address and find township/county"""
+    global township_data, county_data
+    
+    # Clean inputs
+    street = street.strip()
+    city = clean_city_name(city)
+    
+    if not street or not city:
+        return {'error': 'Please enter both street address and city'}
+    
+    # Ensure data is loaded
+    if township_data is None or county_data is None:
+        if not await load_boundary_data():
+            return {'error': 'Failed to load boundary data'}
+    
+    # Geocode address
+    full_address = f"{street} {city} NY"
+    console.log(f"Geocoding: {full_address}")
+    
+    geo_result = await geocode_address(full_address)
+    if not geo_result:
+        return {'error': 'Address not found. Please verify the address.'}
+    
+    # Find township and county
+    lat, lon = geo_result['lat'], geo_result['lon']
+    
+    township_props = find_containing_feature(lat, lon, township_data)
+    county_props = find_containing_feature(lat, lon, county_data)
+    
+    # Extract names
+    township_name = township_props.get('NAME', 'Not found') if township_props else 'Not found in coverage area'
+    county_name = county_props.get('NAME', 'Not found') if county_props else 'Not found in New York State'
+    
+    return {
+        'matched_address': geo_result['matched_address'],
+        'township': township_name,
+        'county': county_name + (' County' if county_name != 'Not found in New York State' else ''),
+        'lat': lat,
+        'lon': lon
+    }
+                `);
+                
+                // Load boundary data
+                document.getElementById('status').innerHTML = '🗺️ Loading boundary data...';
+                const dataLoaded = await pyodide.runPythonAsync(`await load_boundary_data()`);
+                
+                if (dataLoaded) {
+                    document.getElementById('status').innerHTML = '✅ Ready! Enter an address to get started.';
+                    document.getElementById('status').className = 'status ready';
+                    document.getElementById('findBtn').disabled = false;
+                } else {
+                    throw new Error('Failed to load boundary data');
+                }
+                
+            } catch (error) {
+                console.error('Error initializing Pyodide:', error);
+                document.getElementById('status').innerHTML = '❌ Error loading Python environment';
+                document.getElementById('status').className = 'status error';
+            }
+        }
+        
+        // Find township function
+        async function findTownship() {
+            const street = document.getElementById('street').value;
+            const city = document.getElementById('city').value;
+            const findBtn = document.getElementById('findBtn');
+            const addressResult = document.getElementById('address-result');
+            const townshipResult = document.getElementById('township-result');
+            const countyResult = document.getElementById('county-result');
+            
+            if (!street.trim() || !city.trim()) {
+                alert('Please enter both street address and city.');
+                return;
+            }
+            
+            try {
+                // Show loading state
+                findBtn.disabled = true;
+                findBtn.innerHTML = '🔄 Finding...';
+                addressResult.innerHTML = 'Geocoding address...';
+                addressResult.className = 'result-item placeholder';
+                townshipResult.style.display = 'none';
+                countyResult.style.display = 'none';
+                
+                // Call Python function
+                const result = await pyodide.runPythonAsync(`await process_address("${street}", "${city}")`);
+                const resultObj = result.toJs({dict_converter: Object.fromEntries});
+                
+                if (resultObj.error) {
+                    addressResult.innerHTML = `❌ ${resultObj.error}`;
+                    addressResult.className = 'result-item placeholder';
+                } else {
+                    // Display results
+                    addressResult.innerHTML = `📍 Address: ${resultObj.matched_address}`;
+                    addressResult.className = 'result-item';
+                    
+                    townshipResult.innerHTML = `🏛️ Municipality/Township: ${resultObj.township}`;
+                    townshipResult.style.display = 'block';
+                    
+                    countyResult.innerHTML = `🗺️ County: ${resultObj.county}`;
+                    countyResult.style.display = 'block';
+                    
+                    // Update map
+                    if (map && typeof L !== 'undefined') {
+                        map.setView([resultObj.lat, resultObj.lon], 14);
+                        
+                        // Clear existing markers
+                        map.eachLayer(function(layer) {
+                            if (layer instanceof L.Marker) {
+                                map.removeLayer(layer);
+                            }
+                        });
+                        
+                        // Add marker
+                        L.marker([resultObj.lat, resultObj.lon])
+                            .addTo(map)
+                            .bindPopup(`
+                                <strong>${resultObj.matched_address}</strong><br/>
+                                Municipality: ${resultObj.township}<br/>
+                                County: ${resultObj.county}
+                            `)
+                            .openPopup();
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error processing address:', error);
+                addressResult.innerHTML = '❌ Error processing address. Please try again.';
+                addressResult.className = 'result-item placeholder';
+            } finally {
+                findBtn.disabled = false;
+                findBtn.innerHTML = '🔍 Find Township & County';
+            }
+        }
+        
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set up event listeners
+            document.getElementById('street').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') findTownship();
+            });
+            document.getElementById('city').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') findTownship();
+            });
+            
+            // Disable button initially
+            document.getElementById('findBtn').disabled = true;
+            
+            // Initialize when Leaflet is ready
+            function checkAndInit() {
+                if (typeof L !== 'undefined') {
+                    initMap();
+                    initPyodide();
+                } else {
+                    setTimeout(checkAndInit, 100);
+                }
+            }
+            
+            checkAndInit();
+        });
+    </script>
+</body>
+</html>
