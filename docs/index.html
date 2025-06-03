@@ -475,23 +475,65 @@ def point_in_polygon(point_lat, point_lon, polygon_coords):
     return inside
 
 def find_containing_feature(lat, lon, feature_data):
-    """Find which feature contains the given point"""
+    """Find which feature contains the given point, prioritizing cities/villages over towns"""
     if not feature_data or 'features' not in feature_data:
         return None
     
+    matches = []
+    
+    # Find all features that contain this point
     for feature in feature_data['features']:
         geometry = feature.get('geometry', {})
+        properties = feature.get('properties', {})
+        
+        point_inside = False
+        
         if geometry.get('type') == 'Polygon':
             coords = geometry['coordinates'][0]
             if point_in_polygon(lat, lon, coords):
-                return feature['properties']
+                point_inside = True
         elif geometry.get('type') == 'MultiPolygon':
             for polygon in geometry['coordinates']:
                 coords = polygon[0]
                 if point_in_polygon(lat, lon, coords):
-                    return feature['properties']
+                    point_inside = True
+                    break
+        
+        if point_inside:
+            matches.append(properties)
     
-    return None
+    if not matches:
+        return None
+    
+    if len(matches) == 1:
+        return matches[0]
+    
+    # Multiple matches - prioritize by municipal type
+    # Priority: City > Town (since villages aren't in this dataset)
+    console.log(f"Found {len(matches)} overlapping municipalities")
+    
+    # Check for cities first (MUNI_TYPE = "city")
+    for match in matches:
+        muni_type = match.get('MUNI_TYPE', '').lower()
+        name = match.get('NAME', '')
+        console.log(f"Checking municipality: {name} (Type: {muni_type})")
+        
+        if muni_type == 'city':
+            console.log(f"Prioritizing city: {name}")
+            return match
+    
+    # Fall back to towns (MUNI_TYPE = "town")
+    for match in matches:
+        muni_type = match.get('MUNI_TYPE', '').lower()
+        name = match.get('NAME', '')
+        
+        if muni_type == 'town':
+            console.log(f"Using town: {name}")
+            return match
+    
+    # If no type matches, return the first one
+    console.log(f"No specific type found, using first match: {matches[0].get('NAME', '')}")
+    return matches[0]
 
 async def process_address(street, city):
     """Main function to process address and find township/county"""
@@ -524,8 +566,23 @@ async def process_address(street, city):
     township_props = find_containing_feature(lat, lon, township_data)
     county_props = find_containing_feature(lat, lon, county_data)
     
-    # Extract names
-    township_name = township_props.get('NAME', 'Not found') if township_props else 'Not found in coverage area'
+    # Extract names with proper municipal formatting
+    if township_props:
+        name = township_props.get('NAME', 'Unknown')
+        muni_type = township_props.get('MUNI_TYPE', '').lower()
+        
+        if muni_type == 'city':
+            township_name = f"City of {name}"
+        elif muni_type == 'town':
+            township_name = f"Town of {name}"
+        else:
+            # Fallback for any unexpected types
+            township_name = name
+        
+        console.log(f"Found municipality: {township_name} (Type: {muni_type})")
+    else:
+        township_name = 'Not found in coverage area'
+    
     county_name = county_props.get('NAME', 'Not found') if county_props else 'Not found in New York State'
     
     if township_name != 'Not found' and township_name != 'Not found in coverage area':
@@ -596,7 +653,7 @@ async def process_address(street, city):
                     addressResult.innerHTML = `📍 Address: ${resultObj.matched_address}`;
                     addressResult.className = 'result-item';
                     
-                    townshipResult.innerHTML = `🏛️ Municipality/Township: ${resultObj.township}`;
+                    townshipResult.innerHTML = `🏛️ Municipality: ${resultObj.township}`;
                     townshipResult.style.display = 'block';
                     
                     countyResult.innerHTML = `🗺️ County: ${resultObj.county}`;
