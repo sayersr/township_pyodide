@@ -180,7 +180,8 @@
                     <strong>Coverage Area:</strong><br>
                     Long Island, NYC, and Westchester County<br><br>
                     <strong>Supported Counties:</strong><br>
-                    Nassau, Suffolk, Queens, Kings (Brooklyn), New York (Manhattan), Richmond (Staten Island), Bronx, Westchester
+                    Nassau, Suffolk, Queens, Kings (Brooklyn), New York (Manhattan), Richmond (Staten Island), Bronx, Westchester<br><br>
+                    <strong>Geocoding:</strong> OpenStreetMap Nominatim
                 </div>
             </div>
             
@@ -268,8 +269,33 @@ def clean_city_name(city_text):
         return city_text.split(',')[0].strip()
     return city_text.strip()
 
-async def fetch_json(url, params=None):
-    """Fetch JSON data using JavaScript fetch API"""
+async def fetch_json_nominatim(url, params=None):
+    """Fetch JSON data from Nominatim with proper headers"""
+    try:
+        if params:
+            query_string = urllib.parse.urlencode(params)
+            url = f"{url}?{query_string}"
+        
+        # Nominatim requires User-Agent header
+        headers = {
+            'User-Agent': 'Township Finder App (sayersr.github.io)'
+        }
+        
+        response = await fetch(url, {"headers": headers})
+        
+        if response.ok:
+            text = await response.text()
+            data = json.loads(text)
+            return data
+        else:
+            console.log(f"Nominatim request failed: {response.status}")
+            return None
+    except Exception as e:
+        console.log(f"Error fetching from Nominatim: {str(e)}")
+        return None
+
+async def fetch_json_arcgis(url, params=None):
+    """Fetch JSON data from ArcGIS services"""
     try:
         if params:
             query_string = urllib.parse.urlencode(params)
@@ -282,10 +308,40 @@ async def fetch_json(url, params=None):
             data = json.loads(text)
             return data
         else:
-            console.log(f"HTTP request failed: {response.status}")
+            console.log(f"ArcGIS request failed: {response.status}")
             return None
     except Exception as e:
-        console.log(f"Error in fetch_json: {str(e)}")
+        console.log(f"Error fetching from ArcGIS: {str(e)}")
+        return None
+
+async def geocode_address_nominatim(full_address):
+    """Geocode address using OpenStreetMap Nominatim (CORS-friendly)"""
+    try:
+        base_url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            'q': full_address,
+            'format': 'json',
+            'limit': '1',
+            'countrycodes': 'us',
+            'addressdetails': '1'
+        }
+        
+        console.log(f"Geocoding '{full_address}' using Nominatim...")
+        data = await fetch_json_nominatim(base_url, params)
+        
+        if data and len(data) > 0:
+            result = data[0]
+            console.log(f"Geocoding successful: {result['lat']}, {result['lon']}")
+            return {
+                'matched_address': result.get('display_name', full_address),
+                'lat': float(result['lat']),
+                'lon': float(result['lon'])
+            }
+        else:
+            console.log("No geocoding results found")
+            return None
+    except Exception as e:
+        console.log(f"Geocoding error: {str(e)}")
         return None
 
 async def fetch_feature_service(service_url, where_clause="1=1"):
@@ -299,10 +355,10 @@ async def fetch_feature_service(service_url, where_clause="1=1"):
             'outSR': '4326'
         }
         
-        data = await fetch_json(query_url, params)
+        data = await fetch_json_arcgis(query_url, params)
         
-        if data:
-            console.log(f"Loaded {len(data.get('features', []))} features")
+        if data and 'features' in data:
+            console.log(f"Loaded {len(data['features'])} features")
             return data
         else:
             console.log(f"Failed to fetch from {service_url}")
@@ -333,32 +389,6 @@ async def load_boundary_data():
     county_data = await fetch_feature_service(county_service)
     
     return township_data is not None and county_data is not None
-
-async def geocode_address(full_address):
-    """Geocode address using Census API"""
-    try:
-        base_url = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
-        params = {
-            'address': full_address,
-            'benchmark': '2020',
-            'format': 'json'
-        }
-        
-        data = await fetch_json(base_url, params)
-        
-        if data:
-            matches = data.get('result', {}).get('addressMatches', [])
-            if matches:
-                match = matches[0]
-                return {
-                    'matched_address': match.get('matchedAddress', ''),
-                    'lat': float(match['coordinates']['y']),
-                    'lon': float(match['coordinates']['x'])
-                }
-        return None
-    except Exception as e:
-        console.log(f"Geocoding error: {str(e)}")
-        return None
 
 def point_in_polygon(point_lat, point_lon, polygon_coords):
     """Check if point is inside polygon using ray casting algorithm"""
@@ -415,19 +445,20 @@ async def process_address(street, city):
     
     # Ensure data is loaded
     if township_data is None or county_data is None:
+        console.log("Boundary data not loaded, loading now...")
         if not await load_boundary_data():
             return {'error': 'Failed to load boundary data'}
     
-    # Geocode address
+    # Geocode address using Nominatim
     full_address = f"{street} {city} NY"
-    console.log(f"Geocoding: {full_address}")
     
-    geo_result = await geocode_address(full_address)
+    geo_result = await geocode_address_nominatim(full_address)
     if not geo_result:
-        return {'error': 'Address not found. Please verify the address.'}
+        return {'error': 'Address not found. Please verify the address and try again.'}
     
     # Find township and county
     lat, lon = geo_result['lat'], geo_result['lon']
+    console.log(f"Looking up boundaries for coordinates: {lat}, {lon}")
     
     township_props = find_containing_feature(lat, lon, township_data)
     county_props = find_containing_feature(lat, lon, county_data)
@@ -435,6 +466,11 @@ async def process_address(street, city):
     # Extract names
     township_name = township_props.get('NAME', 'Not found') if township_props else 'Not found in coverage area'
     county_name = county_props.get('NAME', 'Not found') if county_props else 'Not found in New York State'
+    
+    if township_name != 'Not found' and township_name != 'Not found in coverage area':
+        console.log(f"Found township: {township_name}")
+    if county_name != 'Not found' and county_name != 'Not found in New York State':
+        console.log(f"Found county: {county_name}")
     
     return {
         'matched_address': geo_result['matched_address'],
@@ -488,7 +524,7 @@ async def process_address(street, city):
                 countyResult.style.display = 'none';
                 
                 // Call Python function
-                const result = await pyodide.runPythonAsync(`await process_address("${street}", "${city}")`);
+                const result = await pyodide.runPythonAsync(`await process_address("${street.replace(/"/g, '\\"')}", "${city.replace(/"/g, '\\"')}")`);
                 const resultObj = result.toJs({dict_converter: Object.fromEntries});
                 
                 if (resultObj.error) {
